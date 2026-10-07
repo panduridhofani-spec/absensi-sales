@@ -299,9 +299,9 @@ const AllTransactionsInner = () => {
         </div>
 
         <div className="card" style={{ padding: '0.5rem 0.75rem', background: 'rgba(30, 41, 59, 0.7)' }}>
-          <div className="flex flex-col xl:flex-row gap-2 md:gap-4 justify-between">
-            <div className="flex flex-col md:flex-row gap-3 flex-1">
-              <div className="relative flex-1">
+          <div className="flex flex-col xl:flex-row gap-2 md:gap-4 justify-between min-w-0">
+            <div className="flex flex-col md:flex-row gap-3 flex-1 min-w-0">
+              <div className="relative flex-1 min-w-0">
                 <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted" />
                 <input
                   type="text"
@@ -336,36 +336,39 @@ const AllTransactionsInner = () => {
               </div>
             </div>
             
-            <div className="flex gap-2 flex-wrap shrink-0 xl:justify-end items-center border-t xl:border-t-0 xl:border-l border-slate-700 pt-3 xl:pt-0 xl:pl-3">
+            <div 
+              className="flex gap-2 overflow-x-auto pb-1 shrink-0 xl:justify-end items-center border-t xl:border-t-0 xl:border-l border-slate-700 pt-3 xl:pt-0 xl:pl-3 hide-scrollbar" 
+              style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
               <button 
-                className={`btn ${filterType === 'all' ? 'btn-primary' : 'btn-secondary'} px-4 py-2 text-sm flex-1 md:flex-none`}
+                className={`btn ${filterType === 'all' ? 'btn-primary' : 'btn-secondary'} px-4 py-2 text-sm flex-none whitespace-nowrap`}
                 onClick={() => setFilterType('all')}
               >
                 Semua
               </button>
               <button 
-                className={`btn ${filterType === 'masuk' ? 'btn-primary' : 'btn-secondary'} px-4 py-2 text-sm flex-1 md:flex-none`}
+                className={`btn ${filterType === 'masuk' ? 'btn-primary' : 'btn-secondary'} px-4 py-2 text-sm flex-none whitespace-nowrap`}
                 onClick={() => setFilterType('masuk')}
                 style={filterType === 'masuk' ? { background: '#059669', borderColor: '#059669' } : {}}
               >
                 Masuk
               </button>
               <button 
-                className={`btn ${filterType === 'retur_selesai' ? 'btn-primary' : 'btn-secondary'} px-4 py-2 text-sm flex-1 md:flex-none`}
+                className={`btn ${filterType === 'retur_selesai' ? 'btn-primary' : 'btn-secondary'} px-4 py-2 text-sm flex-none whitespace-nowrap`}
                 onClick={() => setFilterType('retur_selesai')}
                 style={filterType === 'retur_selesai' ? { background: '#dc2626', borderColor: '#dc2626', color: '#fff' } : {}}
               >
                 Retur (Selesai)
               </button>
               <button 
-                className={`btn ${filterType === 'retur_pending' ? 'btn-primary' : 'btn-secondary'} px-4 py-2 text-sm flex-1 md:flex-none`}
+                className={`btn ${filterType === 'retur_pending' ? 'btn-primary' : 'btn-secondary'} px-4 py-2 text-sm flex-none whitespace-nowrap`}
                 onClick={() => setFilterType('retur_pending')}
                 style={filterType === 'retur_pending' ? { background: '#eab308', borderColor: '#eab308', color: '#fff' } : {}}
               >
                 Retur (Menunggu)
               </button>
               <button 
-                className={`btn ${filterType === 'retur_terlambat' ? 'btn-primary' : 'btn-secondary'} px-4 py-2 text-sm flex-1 md:flex-none`}
+                className={`btn ${filterType === 'retur_terlambat' ? 'btn-primary' : 'btn-secondary'} px-4 py-2 text-sm flex-none whitespace-nowrap`}
                 onClick={() => setFilterType('retur_terlambat')}
                 style={filterType === 'retur_terlambat' ? { background: '#ef4444', borderColor: '#ef4444', color: '#fff', fontWeight: 'bold' } : { color: '#ef4444' }}
               >
