@@ -144,26 +144,23 @@ export const getAttendanceForSales = async (salesId, limitDays = 30) => {
       .map(a => ({ ...a, timestamp: a.timestamp || a.checkInTime }))
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   } else {
-    let q;
-    if (limitDays) {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - limitDays);
-      q = query(
-        collection(db, 'attendance'),
-        where('salesId', '==', salesId),
-        where('timestamp', '>=', cutoff.toISOString())
-      );
-    } else {
-      q = query(
-        collection(db, 'attendance'),
-        where('salesId', '==', salesId)
-      );
-    }
+    let q = query(
+      collection(db, 'attendance'),
+      where('salesId', '==', salesId)
+    );
     const querySnapshot = await getDocs(q);
-    const records = querySnapshot.docs.map(doc => {
+    let records = querySnapshot.docs.map(doc => {
       const data = doc.data();
       return { id: doc.id, ...data, timestamp: data.timestamp || data.checkInTime };
     });
+
+    if (limitDays) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - limitDays);
+      const cutoffStr = cutoff.toISOString();
+      records = records.filter(r => r.timestamp >= cutoffStr);
+    }
+
     return records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   }
 };
@@ -263,23 +260,20 @@ export const getTransactionsForSales = async (salesId, limitDays = 60) => {
       .filter(t => t.salesId === salesId)
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   } else {
-    let q;
+    let q = query(
+      collection(db, 'transactions'),
+      where('salesId', '==', salesId)
+    );
+    const querySnapshot = await getDocs(q);
+    let records = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
     if (limitDays) {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - limitDays);
-      q = query(
-        collection(db, 'transactions'),
-        where('salesId', '==', salesId),
-        where('timestamp', '>=', cutoff.toISOString())
-      );
-    } else {
-      q = query(
-        collection(db, 'transactions'),
-        where('salesId', '==', salesId)
-      );
+      const cutoffStr = cutoff.toISOString();
+      records = records.filter(r => r.timestamp >= cutoffStr);
     }
-    const querySnapshot = await getDocs(q);
-    const records = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
     return records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   }
 };
