@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { FaPlus, FaSearch, FaChevronRight, FaTimes, FaBox, FaFilter, FaSortAlphaDown } from 'react-icons/fa';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { LuPlus, LuSearch, LuChevronRight, LuX, LuPackage, LuFilter, LuArrowDownAZ, LuUsers, LuPhone } from 'react-icons/lu';
 import { getSalesList, addSales } from '../services/dbService';
+import { PageHeader, EmptyState, Skeleton } from '../components/ui';
+import SelectField from '../components/SelectField';
+import { stringOptions, phoneMatches } from '../utils/options';
 
 const normalizeItems = (items) => {
   if (Array.isArray(items)) return items;
@@ -14,26 +17,19 @@ const SalesList = () => {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [displayLimit, setDisplayLimit] = useState(10);
+  const [displayLimit, setDisplayLimit] = useState(12);
   const [filterDistributor, setFilterDistributor] = useState('all');
   const [sortBy, setSortBy] = useState('name_asc');
   const navigate = useNavigate();
 
-  // Form State
-  const [formData, setFormData] = useState({
-    name: '',
-    whatsapp: '',
-    distributor: '',
-    items: []
-  });
+  const [formData, setFormData] = useState({ name: '', whatsapp: '', distributor: '', items: [] });
   const [newItem, setNewItem] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const data = await getSalesList();
-      const normalizedData = data.map(s => ({ ...s, items: normalizeItems(s.items) }));
-      setSales(normalizedData);
+      setSales(data.map(s => ({ ...s, items: normalizeItems(s.items) })));
     } catch (error) {
       console.error(error);
     } finally {
@@ -48,14 +44,14 @@ const SalesList = () => {
   const uniqueDistributors = [...new Set(sales.map(s => (s.distributor || '').trim()).filter(Boolean))].sort();
 
   const filteredSales = sales.filter(s => {
-    const searchLower = search.toLowerCase();
-    const nameMatch = s.name.toLowerCase().includes(searchLower);
-    const distMatch = (s.distributor || '').toLowerCase().includes(searchLower);
-    const itemMatch = s.items.some(item => item.toLowerCase().includes(searchLower));
-    
-    const passesSearch = nameMatch || distMatch || itemMatch;
+    const q = search.toLowerCase();
+    const passesSearch =
+      s.name.toLowerCase().includes(q) ||
+      (s.distributor || '').toLowerCase().includes(q) ||
+      (s.whatsapp || '').toLowerCase().includes(q) ||
+      phoneMatches(s.whatsapp, search) ||
+      s.items.some(item => item.toLowerCase().includes(q));
     const passesDist = filterDistributor === 'all' || (s.distributor || '').trim() === filterDistributor;
-    
     return passesSearch && passesDist;
   }).sort((a, b) => {
     if (sortBy === 'name_asc') return a.name.localeCompare(b.name);
@@ -66,14 +62,11 @@ const SalesList = () => {
 
   const displayedSales = filteredSales.slice(0, displayLimit);
 
-  // Infinite Scroll Listener
+  // Infinite scroll
   useEffect(() => {
     const handleScroll = () => {
-      // If we are near the bottom of the page, load more
       if (window.innerHeight + document.documentElement.scrollTop + 100 >= document.documentElement.offsetHeight) {
-        if (displayLimit < filteredSales.length) {
-          setDisplayLimit(prev => prev + 10);
-        }
+        if (displayLimit < filteredSales.length) setDisplayLimit(prev => prev + 12);
       }
     };
     window.addEventListener('scroll', handleScroll);
@@ -81,7 +74,7 @@ const SalesList = () => {
   }, [displayLimit, filteredSales.length]);
 
   const handleAddItem = (e) => {
-    e.preventDefault(); // Prevent form submit if enter is pressed
+    e.preventDefault();
     if (newItem.trim()) {
       setFormData({ ...formData, items: [...formData.items, newItem.trim()] });
       setNewItem('');
@@ -109,185 +102,149 @@ const SalesList = () => {
 
   return (
     <>
-      {/* Sticky Header Section */}
-      <div className="sticky-page-header mb-3 md:mb-6">
-        <div className="flex items-center justify-between mb-3 md:mb-4">
-            <div>
-              <h1 className="mb-0 md:mb-1 text-lg md:text-3xl">Data Sales</h1>
-              <p className="text-secondary text-xs md:text-sm m-0 hidden sm:block">Kelola data profil sales yang berkunjung.</p>
-            </div>
-            <button className="btn btn-primary text-xs md:text-sm px-3 py-1.5 md:px-4 md:py-2" onClick={() => setShowAddModal(true)}>
-              <FaPlus /> <span className="hidden sm:inline">Tambah Sales</span>
-            </button>
-          </div>
+      <PageHeader
+        eyebrow="Tim lapangan"
+        title="Data Sales"
+        subtitle={loading ? 'Memuat...' : `${sales.length} sales terdaftar`}
+        actions={
+          <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
+            <LuPlus /> <span>Tambah Sales</span>
+          </button>
+        }
+      />
 
-          <div className="card flex flex-col md:flex-row gap-2" style={{ padding: '0.5rem 0.75rem', background: 'rgba(30, 41, 59, 0.7)' }}>
-            <div className="flex-1 flex items-center gap-3">
-              <FaSearch className="text-muted" />
-              <input 
-                type="text" 
-                placeholder="Cari nama, distributor, atau barang..." 
-                className="form-control" 
-                style={{ border: 'none', background: 'transparent', boxShadow: 'none', padding: 0 }}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+      <div className="card" style={{ padding: '0.75rem', marginBottom: '1.25rem' }}>
+        <div className="flex flex-col md:flex-row gap-3 md:items-center">
+          <div className="input-icon flex-1">
+            <LuSearch />
+            <input
+              type="text"
+              placeholder="Cari nama, no. HP, distributor, atau barang..."
+              className="form-control"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            <div style={{ flex: '1 1 180px' }}>
+              <SelectField icon={<LuFilter />} value={filterDistributor} onChange={setFilterDistributor} title="Distributor" options={stringOptions(uniqueDistributors, 'Semua distributor')} />
             </div>
-            <div className="flex items-center gap-3 border-t md:border-t-0 md:border-l border-slate-700 pt-3 md:pt-0 md:pl-3">
-              <div className="flex items-center gap-2">
-                <FaFilter className="text-muted text-sm" />
-                <select 
-                  className="form-control bg-transparent text-sm" 
-                  style={{ border: 'none', padding: '0', cursor: 'pointer', outline: 'none' }}
-                  value={filterDistributor}
-                  onChange={(e) => setFilterDistributor(e.target.value)}
-                >
-                  <option value="all" className="bg-slate-800 text-white">Semua Distributor</option>
-                  {uniqueDistributors.map(dist => (
-                    <option key={dist} value={dist} className="bg-slate-800 text-white">{dist}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-2 ml-2">
-                <FaSortAlphaDown className="text-muted text-sm" />
-                <select 
-                  className="form-control bg-transparent text-sm" 
-                  style={{ border: 'none', padding: '0', cursor: 'pointer', outline: 'none' }}
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                >
-                  <option value="name_asc" className="bg-slate-800 text-white">Nama (A-Z)</option>
-                  <option value="name_desc" className="bg-slate-800 text-white">Nama (Z-A)</option>
-                  <option value="dist_asc" className="bg-slate-800 text-white">Distributor (A-Z)</option>
-                </select>
-              </div>
+            <div style={{ flex: '1 1 160px' }}>
+              <SelectField icon={<LuArrowDownAZ />} value={sortBy} onChange={setSortBy} title="Urutkan" options={[
+                { value: 'name_asc', label: 'Nama (A-Z)' },
+                { value: 'name_desc', label: 'Nama (Z-A)' },
+                { value: 'dist_asc', label: 'Distributor (A-Z)' },
+              ]} />
             </div>
           </div>
         </div>
-
-      <div className="animate-fade-in pb-10">
-        {loading ? (
-          <div className="text-center mt-8">Loading data...</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {displayedSales.length === 0 ? (
-              <div className="text-muted text-center py-8" style={{ gridColumn: '1 / -1' }}>
-                Tidak ada data sales ditemukan.
-              </div>
-            ) : (
-              displayedSales.map(s => (
-                <div key={s.id} className="card flex flex-col justify-between" style={{ cursor: 'pointer', padding: '1.25rem' }} onClick={() => navigate(`/sales/${s.id}`)}>
-                  <div>
-                    <div className="flex items-center gap-4 mb-4">
-                      <div className="avatar">
-                        {s.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <h3 style={{ fontSize: '1.25rem', marginBottom: '0.25rem' }}>{s.name}</h3>
-                        <span className="badge badge-primary">{s.distributor}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="mt-4">
-                      <p className="text-muted mb-2 flex items-center gap-2" style={{ fontSize: '0.875rem' }}>
-                        <FaBox /> Barang:
-                      </p>
-                      <div className="flex" style={{ flexWrap: 'wrap', gap: '0.35rem' }}>
-                        {s.items.length === 0 ? (
-                          <span className="text-muted text-sm">-</span>
-                        ) : (
-                          s.items.slice(0, 3).map((item, i) => (
-                            <span key={i} className="badge" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-light)', color: 'var(--text-secondary)', maxWidth: '100%', whiteSpace: 'normal', wordBreak: 'break-word', display: 'inline-flex', textAlign: 'left' }}>
-                              {item}
-                            </span>
-                          ))
-                        )}
-                        {s.items.length > 3 && (
-                          <span className="badge" style={{ background: 'transparent', color: 'var(--accent-primary)', padding: '0.25rem' }}>
-                            +{s.items.length - 3} lagi
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-6 flex justify-end text-accent-primary">
-                    <span className="flex items-center gap-1" style={{ fontSize: '0.875rem' }}>Lihat Detail <FaChevronRight /></span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* Loading More Indicator */}
-        {!loading && displayLimit < filteredSales.length && (
-          <div className="text-center mt-8 mb-4">
-            <div className="inline-block p-3 rounded-full bg-slate-800 text-muted" style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
-              Memuat lebih banyak data...
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Add Modal */}
+      {loading ? (
+        <div className="grid-auto">
+          <Skeleton height={190} /><Skeleton height={190} /><Skeleton height={190} />
+        </div>
+      ) : displayedSales.length === 0 ? (
+        <div className="card">
+          <EmptyState icon={<LuUsers />} title="Sales tidak ditemukan" text="Coba ubah kata kunci atau filter pencarian Anda." />
+        </div>
+      ) : (
+        <div className="grid-auto stagger">
+          {displayedSales.map(s => (
+            <div key={s.id} className="card card-interactive sales-card" onClick={() => navigate(`/sales/${s.id}`)} role="link" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/sales/${s.id}`); }}>
+              <div className="flex items-center gap-3">
+                <div className="avatar">{s.name.charAt(0).toUpperCase()}</div>
+                <div className="min-w-0">
+                  <h3 className="truncate">{s.name}</h3>
+                  <span className="badge badge-primary" style={{ marginTop: 4 }}>{s.distributor || '-'}</span>
+                </div>
+              </div>
+
+              {s.whatsapp && (
+                <div className="text-sm text-secondary flex items-center gap-2" style={{ marginTop: '0.9rem' }}>
+                  <LuPhone /> {s.whatsapp}
+                </div>
+              )}
+
+              <div style={{ marginTop: '0.9rem' }}>
+                <div className="text-xs text-muted font-semibold uppercase tracking-wider flex items-center gap-2" style={{ marginBottom: 6 }}>
+                  <LuPackage /> Barang dibawa
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {s.items.length === 0 ? (
+                    <span className="text-muted text-sm">-</span>
+                  ) : (
+                    s.items.slice(0, 3).map((item, i) => (
+                      <span key={i} className="badge" style={{ whiteSpace: 'normal', textAlign: 'left' }}>{item}</span>
+                    ))
+                  )}
+                  {s.items.length > 3 && <span className="badge badge-primary">+{s.items.length - 3}</span>}
+                </div>
+              </div>
+
+              <div className="sales-card-cta">
+                Lihat detail <LuChevronRight />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && displayLimit < filteredSales.length && (
+        <div className="text-center mt-6"><div className="spinner" style={{ margin: '0 auto' }} /></div>
+      )}
+
       {showAddModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(8px)',
-          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-          zIndex: 9999, padding: '1rem', overflowY: 'auto'
-        }}>
-          <div className="card w-full animate-fade-in" style={{ maxWidth: '500px', margin: '2rem auto', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <h2 className="mb-6 text-white">Tambah Sales Baru</h2>
+        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowAddModal(false); }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Tambah sales baru">
+            <div className="card-header">
+              <h2>Tambah Sales Baru</h2>
+              <button type="button" className="icon-btn" onClick={() => setShowAddModal(false)} aria-label="Tutup"><LuX /></button>
+            </div>
             <form onSubmit={handleSubmit}>
               <div className="form-group">
                 <label className="form-label">Nama Sales</label>
-                <input required type="text" className="form-control" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} maxLength={50} />
+                <input required type="text" className="form-control" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} maxLength={50} />
               </div>
               <div className="form-group">
                 <label className="form-label">No WhatsApp</label>
-                <input required type="tel" className="form-control" value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} maxLength={20} />
+                <input required type="tel" className="form-control" value={formData.whatsapp} onChange={e => setFormData({ ...formData, whatsapp: e.target.value })} maxLength={20} />
               </div>
               <div className="form-group">
                 <label className="form-label">Nama Distributor</label>
-                <input required type="text" className="form-control" value={formData.distributor} onChange={e => setFormData({...formData, distributor: e.target.value})} maxLength={50} />
+                <input required type="text" className="form-control" value={formData.distributor} onChange={e => setFormData({ ...formData, distributor: e.target.value })} maxLength={50} />
               </div>
-              
+
               <div className="form-group">
                 <label className="form-label">Barang yang Dibawa</label>
                 <div className="flex gap-2 mb-3">
-                  <input 
-                    type="text" 
-                    className="form-control" 
-                    value={newItem} 
-                    onChange={e => setNewItem(e.target.value)} 
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={newItem}
+                    onChange={e => setNewItem(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleAddItem(e); }}
-                    placeholder="Ketik nama barang... (Maks 40 karakter)" 
+                    placeholder="Ketik nama barang (maks 40 karakter)"
                     maxLength={40}
                   />
-                  <button type="button" className="btn btn-secondary" onClick={handleAddItem}>
-                    Tambah
-                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={handleAddItem}>Tambah</button>
                 </div>
-                
-                {formData.items.length > 0 && (
-                  <div className="p-3 rounded-md" style={{ background: 'rgba(0,0,0,0.2)', minHeight: '60px', maxHeight: '200px', overflowY: 'auto' }}>
-                    <div className="flex" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
-                      {formData.items.map((item, idx) => (
-                        <div key={idx} className="badge badge-primary flex items-center gap-2" style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', maxWidth: '100%', whiteSpace: 'normal', wordBreak: 'break-word', display: 'inline-flex', textAlign: 'left' }}>
-                          <span>{item}</span>
-                          <FaTimes style={{ cursor: 'pointer', opacity: 0.7, flexShrink: 0 }} onClick={() => handleRemoveItem(idx)} />
-                        </div>
-                      ))}
-                    </div>
+
+                {formData.items.length > 0 ? (
+                  <div className="flex flex-wrap gap-2" style={{ maxHeight: 180, overflowY: 'auto' }}>
+                    {formData.items.map((item, idx) => (
+                      <span key={idx} className="badge badge-primary" style={{ padding: '0.35rem 0.4rem 0.35rem 0.75rem', whiteSpace: 'normal', textAlign: 'left' }}>
+                        {item}
+                        <button type="button" className="icon-btn" style={{ width: 22, height: 22, fontSize: '0.8rem' }} onClick={() => handleRemoveItem(idx)} aria-label={`Hapus ${item}`}><LuX /></button>
+                      </span>
+                    ))}
                   </div>
-                )}
-                {formData.items.length === 0 && (
-                  <p className="text-muted text-sm mt-2">Belum ada barang yang ditambahkan.</p>
+                ) : (
+                  <p className="text-muted text-sm">Belum ada barang yang ditambahkan.</p>
                 )}
               </div>
-              
-              <div className="flex gap-4 mt-8">
+
+              <div className="flex gap-3 mt-6">
                 <button type="button" className="btn btn-secondary flex-1" onClick={() => setShowAddModal(false)}>Batal</button>
                 <button type="submit" className="btn btn-primary flex-1" disabled={formData.items.length === 0 && !newItem}>Simpan</button>
               </div>

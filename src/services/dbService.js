@@ -1,5 +1,5 @@
-import { db } from '../firebase';
-import { collection, getDocs, doc, getDoc, addDoc, updateDoc, deleteDoc, query, where, orderBy } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { collection, getDocs, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, writeBatch, runTransaction } from 'firebase/firestore';
 
 const USE_LOCAL_STORAGE = import.meta.env.VITE_FIREBASE_API_KEY === undefined || import.meta.env.VITE_FIREBASE_API_KEY === '';
 
@@ -198,6 +198,23 @@ export const getAllAttendance = async (limitDays = 30) => {
   }
 };
 
+// Hanya mengambil absensi dalam rentang waktu [startISO, endISO) — tidak memuat seluruh riwayat.
+export const getAttendanceRange = async (startISO, endISO) => {
+  const normalize = (a) => ({ ...a, timestamp: a.timestamp || a.checkInTime });
+  const byNewest = (a, b) => new Date(b.timestamp) - new Date(a.timestamp);
+  if (USE_LOCAL_STORAGE) {
+    return readLocalList('attendance_data')
+      .map(normalize)
+      .filter(a => a.timestamp >= startISO && a.timestamp < endISO)
+      .sort(byNewest);
+  }
+  const q = query(collection(db, 'attendance'), where('timestamp', '>=', startISO), where('timestamp', '<', endISO));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => normalize({ id: d.id, ...d.data() })).sort(byNewest);
+};
+
+const readLocalList = (key) => JSON.parse(localStorage.getItem(key) || '[]');
+
 // --- Transactions API ---
 
 export const addTransaction = async (transactionData) => {
@@ -357,4 +374,192 @@ export const deleteProduct = async (id) => {
     await deleteDoc(doc(db, 'products_data', id));
     return true;
   }
+};
+
+
+// --- Retur Barang (global) API ---
+// Satu dokumen = satu baris barang. Status: 'menunggu' (di gudang) -> 'diambil' (oleh sales).
+
+const readLocal = (key) => JSON.parse(localStorage.getItem(key) || '[]');
+const writeLocal = (key, data) => localStorage.setItem(key, JSON.stringify(data));
+
+export const getReturns = async () => {
+  if (USE_LOCAL_STORAGE) {
+    return readLocal('returns_data').sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+  const snap = await getDocs(collection(db, 'returns'));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+};
+
+export const getReturnsForSales = async (salesId) => {
+  if (USE_LOCAL_STORAGE) {
+    return readLocal('returns_data')
+      .filter(r => r.salesId === salesId)
+      .sort((a, b) => new Date(b.takenAt) - new Date(a.takenAt));
+  }
+  const snap = await getDocs(query(collection(db, 'returns'), where('salesId', '==', salesId)));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => new Date(b.takenAt) - new Date(a.takenAt));
+};
+
+export const addReturns = async (items) => {
+  const now = new Date().toISOString();
+  const by = auth.currentUser?.email || null;
+  const records = items.map(i => ({
+    itemName: i.itemName,
+    quantity: i.quantity,
+    expiredDate: i.expiredDate || '',
+    condition: i.condition || 'kedaluwarsa',
+    notes: i.notes || '',
+    status: 'menunggu',
+    createdAt: now,
+    createdBy: by,
+  }));
+  if (USE_LOCAL_STORAGE) {
+    const data = readLocal('returns_data');
+    records.forEach(r => data.push({ id: generateId(), ...r }));
+    writeLocal('returns_data', data);
+    return;
+  }
+  await Promise.all(records.map(r => addDoc(collection(db, 'returns'), r)));
+};
+
+export const updateReturn = async (id, data) => {
+  if (USE_LOCAL_STORAGE) {
+    const all = readLocal('returns_data');
+    const idx = all.findIndex(r => r.id === id);
+    if (idx !== -1) {
+      all[idx] = { ...all[idx], ...data };
+      writeLocal('returns_data', all);
+    }
+    return;
+  }
+  await updateDoc(doc(db, 'returns', id), data);
+};
+
+export const deleteReturn = async (id) => {
+  if (USE_LOCAL_STORAGE) {
+    writeLocal('returns_data', readLocal('returns_data').filter(r => r.id !== id));
+    return;
+  }
+  await deleteDoc(doc(db, 'returns', id));
+};
+
+// Tandai beberapa baris retur sebagai diambil oleh seorang sales.
+// Dicek di dalam transaksi: jika karyawan lain sudah menyerahkan barang yang sama lebih dulu,
+// seluruh operasi dibatalkan dan error 'already-taken' dilempar (mencegah transaksi dobel).
+export const markReturnsTaken = async (ids, sales, note = '') => {
+  const patch = {
+    status: 'diambil',
+    salesId: sales.id,
+    salesName: sales.name,
+    distributor: sales.distributor || '',
+    takenAt: new Date().toISOString(),
+    takenNote: note,
+    takenBy: auth.currentUser?.email || null,
+  };
+  if (USE_LOCAL_STORAGE) {
+    await Promise.all(ids.map(id => updateReturn(id, patch)));
+    return;
+  }
+  await runTransaction(db, async (tx) => {
+    const refs = ids.map(id => doc(db, 'returns', id));
+    const snaps = await Promise.all(refs.map(r => tx.get(r)));
+    const conflicts = snaps
+      .filter(s => !s.exists() || s.data().status !== 'menunggu')
+      .map(s => (s.exists() ? { itemName: s.data().itemName, salesName: s.data().salesName } : { itemName: 'Barang dihapus', salesName: null }));
+    if (conflicts.length > 0) {
+      const err = new Error('already-taken');
+      err.code = 'already-taken';
+      err.conflicts = conflicts;
+      throw err;
+    }
+    refs.forEach(r => tx.update(r, patch));
+  });
+};
+
+// Kembalikan ke status menunggu (jika salah menandai).
+export const undoReturnTaken = async (id) => {
+  const patch = { status: 'menunggu', salesId: null, salesName: null, distributor: null, takenAt: null, takenNote: '', takenBy: null };
+  await updateReturn(id, patch);
+};
+
+// --- Realtime & Draf bersama ---
+// Draf = daftar barang retur yang sedang dicatat, tersimpan otomatis dan terlihat semua karyawan.
+// Baru masuk ke 'returns' ketika dikonfirmasi (commitDrafts), sehingga transaksi sehari bisa dijadikan satu.
+
+const sortNewest = (list) => list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+export const subscribeReturns = (onData, onError) =>
+  onSnapshot(
+    collection(db, 'returns'),
+    (snap) => onData(sortNewest(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
+    onError
+  );
+
+export const subscribeDrafts = (onData, onError) =>
+  onSnapshot(
+    collection(db, 'return_drafts'),
+    (snap) => onData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))),
+    onError
+  );
+
+export const addDraft = async (item, by = {}) => {
+  const now = new Date().toISOString();
+  const ref = await addDoc(collection(db, 'return_drafts'), {
+    itemName: item.itemName,
+    quantity: item.quantity,
+    expiredDate: item.expiredDate || '',
+    condition: item.condition || 'kedaluwarsa',
+    notes: item.notes || '',
+    pickupDate: item.pickupDate || '',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: by.email || auth.currentUser?.email || null,
+    createdByName: by.name || null,
+  });
+  return ref.id;
+};
+
+export const updateDraft = (id, patch, by = {}) =>
+  updateDoc(doc(db, 'return_drafts', id), {
+    ...patch,
+    updatedAt: new Date().toISOString(),
+    updatedByName: by.name || null,
+  });
+
+export const deleteDraft = (id) => deleteDoc(doc(db, 'return_drafts', id));
+
+// Mengembalikan draf yang baru dihapus (untuk tombol "Urungkan").
+export const restoreDraft = (draft) => setDoc(doc(db, 'return_drafts', draft.id), draft);
+
+// Pindahkan seluruh draf terpilih ke gudang dalam satu operasi atomik.
+export const commitDrafts = async (drafts, by = {}) => {
+  const batchId = `B-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const wb = writeBatch(db);
+  drafts.forEach((d) => {
+    wb.set(doc(collection(db, 'returns')), {
+      itemName: d.itemName,
+      quantity: d.quantity,
+      expiredDate: d.expiredDate || '',
+      condition: d.condition,
+      notes: d.notes || '',
+      pickupDate: d.pickupDate || '',
+      pickupSalesId: d.pickupSalesId || null,
+      pickupSalesName: d.pickupSalesName || null,
+      status: 'menunggu',
+      createdAt: d.createdAt,
+      createdBy: d.createdBy || null,
+      createdByName: d.createdByName || null,
+      committedAt: new Date().toISOString(),
+      committedByName: by.name || null,
+      batchId,
+    });
+    wb.delete(doc(db, 'return_drafts', d.id));
+  });
+  await wb.commit();
+  return batchId;
 };

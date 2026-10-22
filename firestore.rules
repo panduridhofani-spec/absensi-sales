@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isActive() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && profile().active == true;
+    }
+    function isOwner() {
+      return isActive() && profile().role == 'owner';
+    }
+
+    // Profil user: bisa dibaca diri sendiri atau owner; hanya owner yang boleh mengubah.
+    match /users/{uid} {
+      allow read: if request.auth != null && (request.auth.uid == uid || isOwner());
+      allow write: if isOwner();
+    }
+
+    // Data lain: hanya admin/owner yang aktif.
+    match /{document=**} {
+      allow read, write: if isActive();
+    }
+  }
+}

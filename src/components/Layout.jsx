@@ -1,81 +1,106 @@
-import React from 'react';
-import { Outlet, Link, useLocation } from 'react-router-dom';
-import { FaHome, FaUsers, FaCalendarCheck, FaBars, FaFileInvoice, FaSun, FaMoon } from 'react-icons/fa';
+import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { LuLayoutDashboard, LuUndo2, LuUsers, LuCalendarCheck, LuShieldCheck, LuSun, LuMoon, LuLogOut, LuTrendingUp } from 'react-icons/lu';
+import { useAuth } from '../context/AuthContext';
 import './Layout.css';
 
 const Layout = () => {
   const location = useLocation();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const [theme, setTheme] = React.useState(localStorage.getItem('theme') || 'dark');
+  const { logout, isOwner, profile, user } = useAuth();
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem('theme') || 'dark'; } catch { return 'dark'; }
+  });
 
-  React.useEffect(() => {
-    if (theme === 'light') {
-      document.documentElement.classList.add('light');
-    } else {
-      document.documentElement.classList.remove('light');
-    }
-    localStorage.setItem('theme', theme);
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', theme === 'light');
+    try { localStorage.setItem('theme', theme); } catch { /* ignore */ }
   }, [theme]);
 
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light');
-  };
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [location.pathname]);
+
+  const toggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
 
   const navItems = [
-    { path: '/', name: 'Dashboard', icon: <FaHome /> },
-    { path: '/all-transactions', name: 'Laporan Global', icon: <FaFileInvoice /> },
-    { path: '/sales', name: 'Data Sales', icon: <FaUsers /> },
-    { path: '/attendance', name: 'Absensi', icon: <FaCalendarCheck /> },
+    { path: '/', name: 'Dashboard', icon: <LuLayoutDashboard />, end: true },
+    { path: '/returns', name: 'Retur', icon: <LuUndo2 /> },
+    { path: '/sales', name: 'Data Sales', icon: <LuUsers /> },
+    { path: '/attendance', name: 'Absensi', icon: <LuCalendarCheck /> },
+    ...(isOwner ? [{ path: '/users', name: 'Kelola User', icon: <LuShieldCheck /> }] : []),
   ];
+
+  const displayName = profile?.name || user?.email || 'Pengguna';
+  const initial = displayName.charAt(0).toUpperCase();
+  const navClass = ({ isActive }) => `nav-link ${isActive ? 'active' : ''}`;
+  const mobileNavClass = ({ isActive }) => `mobile-nav-link ${isActive ? 'active' : ''}`;
+
+  const ThemeIcon = theme === 'light' ? LuMoon : LuSun;
 
   return (
     <div className="app-container">
-      {/* Desktop Sidebar */}
-      <aside className="sidebar glass-panel">
-        <div className="sidebar-header">
-          <h2>Sales<span style={{ color: 'var(--accent-primary)' }}>Track</span></h2>
-          <button onClick={toggleTheme} className="theme-toggle-btn" title="Toggle Theme">
-            {theme === 'light' ? <FaMoon /> : <FaSun />}
-          </button>
+      {/* Desktop sidebar */}
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark"><LuTrendingUp /></span>
+          <span className="brand-name">Sales<span>Track</span></span>
         </div>
+
+        <div className="nav-section-label">Menu</div>
         <nav className="sidebar-nav">
           {navItems.map((item) => (
-            <Link 
-              key={item.path} 
-              to={item.path} 
-              className={`nav-link ${location.pathname === item.path ? 'active' : ''}`}
-            >
+            <NavLink key={item.path} to={item.path} end={item.end} className={navClass}>
               <span className="nav-icon">{item.icon}</span>
               <span className="nav-text">{item.name}</span>
-            </Link>
+            </NavLink>
           ))}
         </nav>
+
+        <div className="sidebar-footer">
+          <div className="user-chip">
+            <div className="avatar avatar-sm">{initial}</div>
+            <div className="user-chip-text">
+              <div className="user-chip-name">{displayName}</div>
+              <div className="user-chip-role">{isOwner ? 'Owner' : 'Admin'}</div>
+            </div>
+          </div>
+          <div className="sidebar-actions">
+            <button onClick={toggleTheme} className="btn btn-secondary btn-sm" style={{ flex: 1 }} title="Ganti tema">
+              <ThemeIcon /> {theme === 'light' ? 'Gelap' : 'Terang'}
+            </button>
+            <button onClick={logout} className="btn btn-danger btn-sm btn-icon" title="Keluar" aria-label="Keluar">
+              <LuLogOut />
+            </button>
+          </div>
+        </div>
       </aside>
 
-      {/* Mobile Header & Bottom Nav */}
-      <div className="mobile-header">
-        <h2>Sales<span style={{ color: 'var(--accent-primary)' }}>Track</span></h2>
-        <button onClick={toggleTheme} className="theme-toggle-btn" title="Toggle Theme">
-          {theme === 'light' ? <FaMoon /> : <FaSun />}
-        </button>
-      </div>
+      {/* Mobile header */}
+      <header className="mobile-header">
+        <div className="brand">
+          <span className="brand-mark"><LuTrendingUp /></span>
+          <span className="brand-name">Sales<span>Track</span></span>
+        </div>
+        <div className="mobile-header-actions">
+          <button onClick={toggleTheme} className="icon-btn" title="Ganti tema" aria-label="Ganti tema"><ThemeIcon /></button>
+          <button onClick={logout} className="icon-btn danger" title="Keluar" aria-label="Keluar"><LuLogOut /></button>
+        </div>
+      </header>
 
-      <nav className="mobile-bottom-nav">
+      {/* Mobile floating tab bar */}
+      <nav className="mobile-bottom-nav" aria-label="Navigasi utama">
         {navItems.map((item) => (
-          <Link 
-            key={item.path} 
-            to={item.path} 
-            className={`mobile-nav-link ${location.pathname === item.path ? 'active' : ''}`}
-          >
+          <NavLink key={item.path} to={item.path} end={item.end} className={mobileNavClass}>
             <span className="nav-icon">{item.icon}</span>
             <span className="nav-text">{item.name}</span>
-          </Link>
+          </NavLink>
         ))}
       </nav>
 
-      {/* Main Content */}
       <main className="main-content">
-        <Outlet />
+        <div key={location.pathname} className="page-transition">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

@@ -1,0 +1,57 @@
+.login-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+}
+
+.login-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 2.5rem 3rem;
+  background:
+    radial-gradient(70% 60% at 20% 10%, rgba(99, 102, 241, 0.55), transparent 70%),
+    radial-gradient(60% 50% at 90% 90%, rgba(168, 85, 247, 0.45), transparent 70%),
+    #0a0b14;
+  color: #fff;
+}
+.login-hero .brand-name { color: #fff; }
+.login-hero .brand-name span { color: #c4b5fd; }
+.login-hero h1 { color: #fff; font-size: clamp(1.9rem, 1.2rem + 2vw, 2.9rem); line-height: 1.12; max-width: 14ch; }
+.login-hero p { color: rgba(255, 255, 255, 0.72); margin-top: 1rem; max-width: 42ch; font-size: 1rem; }
+.login-hero-copy { position: relative; z-index: 1; }
+.login-brand { position: relative; z-index: 1; }
+
+.login-features { list-style: none; margin-top: 2rem; display: grid; gap: 0.9rem; }
+.login-features li { display: flex; align-items: center; gap: 0.8rem; color: rgba(255, 255, 255, 0.9); font-weight: 500; }
+.login-features .icon-tile { background: rgba(255, 255, 255, 0.12); color: #fff; }
+
+.login-orb { position: absolute; border-radius: 50%; filter: blur(60px); opacity: 0.5; animation: floaty 9s ease-in-out infinite; }
+.orb-a { width: 320px; height: 320px; background: #6366f1; top: -80px; right: -60px; }
+.orb-b { width: 260px; height: 260px; background: #a855f7; bottom: -60px; left: 10%; animation-delay: -4s; }
+
+.login-panel { display: grid; place-items: center; padding: 2rem 1.25rem; }
+.login-card { width: 100%; max-width: 400px; }
+.login-card h2 { font-size: 1.75rem; }
+.login-sub { color: var(--text-secondary); margin: 0.4rem 0 1.75rem; }
+.login-brand-mobile { display: none; margin-bottom: 1.75rem; }
+
+.login-eye { position: absolute; right: 0.25rem; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; }
+.login-error {
+  margin-bottom: 1rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius-md);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+@media (max-width: 860px) {
+  .login-page { grid-template-columns: minmax(0, 1fr); }
+  .login-hero { display: none; }
+  .login-brand-mobile { display: flex; }
+}
