@@ -500,7 +500,15 @@ export const subscribeReturns = (onData, onError) =>
     onError
   );
 
-export const subscribeDrafts = (onData, onError) =>
+// Hanya barang yang masih menunggu (daftar gudang) — ringan dan tersinkron langsung.
+export const subscribeWaitingReturns = (onData, onError) =>
+  onSnapshot(
+    query(collection(db, 'returns'), where('status', '==', 'menunggu')),
+    (snap) => onData(sortNewest(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
+    onError
+  );
+
+export const subscribeDrafts =(onData, onError) =>
   onSnapshot(
     collection(db, 'return_drafts'),
     (snap) => onData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))),
@@ -516,6 +524,7 @@ export const addDraft = async (item, by = {}) => {
     condition: item.condition || 'kedaluwarsa',
     notes: item.notes || '',
     pickupDate: item.pickupDate || '',
+    salesIds: Array.isArray(item.salesIds) ? item.salesIds : [],
     createdAt: now,
     updatedAt: now,
     createdBy: by.email || auth.currentUser?.email || null,
@@ -548,6 +557,7 @@ export const commitDrafts = async (drafts, by = {}) => {
       condition: d.condition,
       notes: d.notes || '',
       pickupDate: d.pickupDate || '',
+      salesIds: Array.isArray(d.salesIds) ? d.salesIds : [],
       pickupSalesId: d.pickupSalesId || null,
       pickupSalesName: d.pickupSalesName || null,
       status: 'menunggu',

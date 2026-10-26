@@ -2,10 +2,7 @@ import { useMemo, useState } from 'react';
 import { LuX, LuHandshake, LuSearch } from 'react-icons/lu';
 import SelectField from '../SelectField';
 import { salesOptions } from '../../utils/options';
-import { conditionOf, formatDate, matchesSalesItems, isLate, lateDays } from '../../utils/returns';
-
-// Cocok jika barangnya termasuk barang yang dibawa sales, atau memang dijanjikan untuk sales itu.
-const isForSales = (r, s) => r.pickupSalesId === s.id || matchesSalesItems(r.itemName, Array.isArray(s.items) ? s.items : []);
+import { conditionOf, formatDate, ownerIds, isLate, lateDays } from '../../utils/returns';
 
 const PickupModal = ({ sales, waiting, preselected, onClose, onConfirm }) => {
   const [salesId, setSalesId] = useState('');
@@ -19,10 +16,10 @@ const PickupModal = ({ sales, waiting, preselected, onClose, onConfirm }) => {
   const { matching, others } = useMemo(() => {
     if (!current) return { matching: [], others: waiting };
     return {
-      matching: waiting.filter(r => isForSales(r, current)),
-      others: waiting.filter(r => !isForSales(r, current)),
+      matching: waiting.filter(r => ownerIds(r, sales).includes(current.id)),
+      others: waiting.filter(r => !ownerIds(r, sales).includes(current.id)),
     };
-  }, [current, waiting]);
+  }, [current, waiting, sales]);
 
   const visible = current ? (showAll ? [...matching, ...others] : matching) : [];
 
@@ -33,7 +30,7 @@ const PickupModal = ({ sales, waiting, preselected, onClose, onConfirm }) => {
     // Jika karyawan sudah memilih barang lebih dulu, pilihan itu dipertahankan.
     if (preselected.length > 0) return;
     // Otomatis centang semua barang yang cocok dengan barang yang dibawa sales ini.
-    setSelected(new Set(waiting.filter(r => isForSales(r, s)).map(r => r.id)));
+    setSelected(new Set(waiting.filter(r => ownerIds(r, sales).includes(s.id)).map(r => r.id)));
   };
 
   const toggle = (id) => {
@@ -81,7 +78,7 @@ const PickupModal = ({ sales, waiting, preselected, onClose, onConfirm }) => {
           <>
             <div className="flex items-center justify-between gap-2" style={{ marginBottom: 8 }}>
               <div className="text-xs text-muted font-semibold uppercase tracking-wider">
-                {matching.length} barang cocok dengan barang {current.name.split(' ')[0]}
+                {matching.length} barang tercatat untuk {current.name}
               </div>
               {others.length > 0 && (
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowAll(s => !s)}>
@@ -92,7 +89,7 @@ const PickupModal = ({ sales, waiting, preselected, onClose, onConfirm }) => {
 
             {visible.length === 0 ? (
               <div className="text-muted text-sm text-center" style={{ padding: '1.25rem 0' }}>
-                Tidak ada barang retur yang cocok untuk sales ini.
+                Belum ada barang retur yang tercatat untuk sales ini. Gunakan "Tampilkan semua" jika perlu.
               </div>
             ) : (
               <div className="list" style={{ maxHeight: 280, overflowY: 'auto' }}>
@@ -114,7 +111,7 @@ const PickupModal = ({ sales, waiting, preselected, onClose, onConfirm }) => {
                           </div>
                         </div>
                       </div>
-                      {!isMatch && <span className="badge badge-warning">Tidak cocok</span>}
+                      {!isMatch && <span className="badge badge-warning">Bukan untuk sales ini</span>}
                     </label>
                   );
                 })}

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { LuMessageCircle, LuCheck, LuCalendarDays, LuTrash2, LuPencil, LuX, LuPackage, LuSearch, LuUndo2, LuPhone, LuBuilding2, LuChevronRight, LuPackageCheck, LuFlame } from 'react-icons/lu';
-import { getSalesById, recordAttendance, getAttendanceForSales, deleteSales, updateSales, getReturnsForSales } from '../services/dbService';
+import { LuMessageCircle, LuCheck, LuCalendarDays, LuTrash2, LuPencil, LuX, LuPackage, LuSearch, LuUndo2, LuPhone, LuBuilding2, LuChevronRight, LuPackageCheck, LuFlame, LuCalendarClock, LuHandshake, LuWarehouse, LuAlarmClockOff } from 'react-icons/lu';
+import { getSalesById, getSalesList, recordAttendance, getAttendanceForSales, deleteSales, updateSales, getReturnsForSales, subscribeWaitingReturns, markReturnsTaken, updateReturn } from '../services/dbService';
 import { PageHeader, EmptyState, Skeleton } from '../components/ui';
-import { conditionOf, formatDateTime } from '../utils/returns';
+import ScheduleModal from '../components/returns/ScheduleModal';
+import { conditionOf, formatDate, formatDateTime, daysSince, ownerIds, isLate, lateDays, isScheduled } from '../utils/returns';
 import { useFeedback } from '../context/FeedbackContext';
 
 const normalizeItems = (items) => {
@@ -37,6 +38,11 @@ const SalesProfile = () => {
   const [sales, setSales] = useState(null);
   const [attendance, setAttendance] = useState([]);
   const [returnsTaken, setReturnsTaken] = useState([]);
+  const [allSales, setAllSales] = useState([]);
+  const [waitingAll, setWaitingAll] = useState([]);
+  const [selected, setSelected] = useState(() => new Set());
+  const [scheduling, setScheduling] = useState(null);
+  const [handing, setHanding] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isMarking, setIsMarking] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -72,6 +78,15 @@ const SalesProfile = () => {
     fetchData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, navigate]);
+
+  // Daftar barang retur yang menunggu (tersinkron langsung) dan seluruh sales untuk pencocokan penerima.
+  useEffect(() => {
+    getSalesList()
+      .then(list => setAllSales(list.map(s => ({ ...s, items: normalizeItems(s.items) }))))
+      .catch(console.error);
+    const unsub = subscribeWaitingReturns(setWaitingAll, console.error);
+    return () => unsub();
+  }, []);
 
   const handleMarkAttendance = async (e) => {
     e.preventDefault();
@@ -154,6 +169,67 @@ const SalesProfile = () => {
   }
   if (!sales) return null;
 
+  // Barang retur yang otomatis masuk ke data sales ini (dari barang yang dibawa), diurutkan yang paling mendesak.
+  const myWaiting = waitingAll
+    .filter(r => ownerIds(r, allSales).includes(id))
+    .sort((a, b) => lateDays(b) - lateDays(a) || new Date(a.createdAt) - new Date(b.createdAt));
+  const lateMine = myWaiting.filter(isLate).length;
+  const selectedItems = myWaiting.filter(r => selected.has(r.id));
+  const allMineSelected = myWaiting.length > 0 && myWaiting.every(r => selected.has(r.id));
+
+  const toggleSelect = (rid) => {
+    const next = new Set(selected);
+    if (next.has(rid)) next.delete(rid); else next.add(rid);
+    setSelected(next);
+  };
+
+  const handover = async () => {
+    const items = selectedItems;
+    if (items.length === 0) return;
+    const ok = await confirm({
+      tone: 'primary',
+      title: `Serahkan ${items.length} barang ke ${sales.name}?`,
+      message: 'Setelah dikonfirmasi, status berubah menjadi Diambil dan barang keluar dari daftar gudang.',
+      details: (
+        <ul style={{ listStyle: 'none', display: 'grid', gap: 4 }}>
+          {items.map(i => <li key={i.id}><b>{i.quantity}×</b> {i.itemName}</li>)}
+        </ul>
+      ),
+      confirmText: 'Ya, serahkan',
+    });
+    if (!ok) return;
+    setHanding(true);
+    try {
+      await markReturnsTaken(items.map(i => i.id), sales);
+      toast.success(`${items.length} barang diserahkan ke ${sales.name}`);
+      setSelected(new Set());
+      setReturnsTaken(await getReturnsForSales(id));
+    } catch (error) {
+      if (error.code === 'already-taken') {
+        const c = error.conflicts[0];
+        toast.error(`${c.itemName} ${c.salesName ? `sudah diambil ${c.salesName}` : 'sudah tidak tersedia'}. Daftar diperbarui.`, { duration: 6000 });
+        setSelected(new Set());
+      } else {
+        console.error(error);
+        toast.error('Gagal menyimpan. Periksa koneksi internet lalu coba lagi.');
+      }
+    } finally {
+      setHanding(false);
+    }
+  };
+
+  const saveSchedule = async (patch) => {
+    try {
+      await Promise.all(scheduling.map(r => updateReturn(r.id, patch)));
+      toast.success(patch.pickupDate ? `Jadwal ambil ${formatDate(patch.pickupDate)} disimpan` : 'Jadwal dihapus');
+      setScheduling(null);
+      setSelected(new Set());
+    } catch (error) {
+      console.error(error);
+      toast.error('Gagal menyimpan jadwal');
+    }
+  };
+
   const today = new Date().toISOString().split('T')[0];
   const hasAttendedToday = attendance.some(a => a.date === today);
   const filteredItems = sales.items.filter(item => item.toLowerCase().includes(itemSearch.toLowerCase()));
@@ -194,10 +270,82 @@ const SalesProfile = () => {
               <div><div className="stat-label">Kunjungan 30 hari</div><div className="stat-value">{visits30}</div></div>
               <div className="stat-icon"><LuFlame /></div>
             </div>
+            <div className={`card stat-card ${lateMine > 0 ? 'stat-danger' : 'stat-warning'}`}>
+              <div><div className="stat-label">{lateMine > 0 ? `Retur menunggu · ${lateMine} terlambat` : 'Retur menunggu'}</div><div className="stat-value">{myWaiting.length}</div></div>
+              <div className="stat-icon">{lateMine > 0 ? <LuAlarmClockOff /> : <LuWarehouse />}</div>
+            </div>
             <div className="card stat-card stat-success">
               <div><div className="stat-label">Retur diambil</div><div className="stat-value">{returnsTaken.length}</div></div>
               <div className="stat-icon"><LuPackageCheck /></div>
             </div>
+          </div>
+
+          {/* Retur menunggu: otomatis masuk dari barang yang dibawa sales ini */}
+          <div className="card">
+            <div className="card-header">
+              <div>
+                <h3 className="card-title flex items-center gap-2"><LuWarehouse className="text-accent-primary" /> Retur menunggu diambil</h3>
+                <div className="text-xs text-muted" style={{ marginTop: 2 }}>Otomatis masuk dari barang yang dibawa sales ini</div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => navigate('/returns')}>Halaman Retur <LuChevronRight /></button>
+            </div>
+
+            {myWaiting.length === 0 ? (
+              <EmptyState icon={<LuPackageCheck />} title="Tidak ada retur menunggu" text="Barang retur yang cocok dengan barang yang dibawa sales ini akan muncul di sini setelah dicatat." />
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-2 flex-wrap" style={{ marginBottom: '0.75rem' }}>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={allMineSelected} onChange={() => setSelected(allMineSelected ? new Set() : new Set(myWaiting.map(r => r.id)))} />
+                    Pilih semua ({myWaiting.length})
+                  </label>
+                  {selectedItems.length > 0 && (
+                    <div className="flex gap-2 flex-wrap animate-fade-in">
+                      <button className="btn btn-secondary btn-sm" onClick={() => setScheduling(selectedItems)}><LuCalendarClock /> Jadwalkan ({selectedItems.length})</button>
+                      <button className="btn btn-primary btn-sm" disabled={handing} onClick={handover}><LuHandshake /> Serahkan ({selectedItems.length})</button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="list">
+                  {myWaiting.map(r => {
+                    const others = ownerIds(r, allSales).filter(oid => oid !== id).map(oid => allSales.find(s => s.id === oid)?.name).filter(Boolean);
+                    return (
+                      <label key={r.id} className="list-item" style={{ cursor: 'pointer', alignItems: 'flex-start', borderColor: selected.has(r.id) ? 'var(--accent-primary)' : undefined, background: isLate(r) ? 'var(--danger-bg)' : undefined }}>
+                        <div className="list-item-main" style={{ alignItems: 'flex-start' }}>
+                          <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} style={{ width: 20, height: 20, marginTop: 2 }} />
+                          <div style={{ minWidth: 0 }}>
+                            <div className="list-item-title" style={{ whiteSpace: 'normal' }}><b className="text-accent-primary">{r.quantity}×</b> {r.itemName}</div>
+                            <div className="flex flex-wrap gap-1" style={{ marginTop: 4 }}>
+                              <span className={`badge badge-${conditionOf(r.condition).tone}`}>{conditionOf(r.condition).label}</span>
+                              {r.expiredDate && <span className="badge">ED {formatDate(r.expiredDate)}</span>}
+                              <span className="badge">{daysSince(r.createdAt) === 0 ? 'Dicatat hari ini' : `${daysSince(r.createdAt)} hari di gudang`}</span>
+                            </div>
+                            {others.length > 0 && <div className="text-xs text-muted" style={{ marginTop: 4 }}>Juga dibawa: {others.slice(0, 2).join(', ')}{others.length > 2 ? ` +${others.length - 2}` : ''}</div>}
+                            {r.notes && <div className="text-xs text-muted" style={{ marginTop: 2 }}>“{r.notes}”</div>}
+                          </div>
+                        </div>
+                        <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                          {isLate(r) ? (
+                            <>
+                              <span className="badge badge-danger badge-dot animate-pulse">Terlambat {lateDays(r)} hari</span>
+                              <div className="text-xs" style={{ color: 'var(--danger)', marginTop: 4 }}>Janji {formatDate(r.pickupDate)}</div>
+                            </>
+                          ) : isScheduled(r) ? (
+                            <>
+                              <span className="badge badge-info badge-dot">Dijadwalkan</span>
+                              <div className="text-xs text-secondary" style={{ marginTop: 4 }}>Ambil {formatDate(r.pickupDate)}</div>
+                            </>
+                          ) : (
+                            <span className="badge badge-warning badge-dot">Menunggu</span>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Detail info */}
@@ -293,6 +441,10 @@ const SalesProfile = () => {
           </div>
         </div>
       </div>
+
+      {scheduling && (
+        <ScheduleModal items={scheduling} sales={allSales} fixedSales={sales} onClose={() => setScheduling(null)} onSave={saveSchedule} />
+      )}
 
       {showEdit && (
         <Modal title="Edit Data Sales" onClose={() => setShowEdit(false)}>

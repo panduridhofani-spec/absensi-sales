@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { LuPlus, LuHandshake, LuSearch, LuDownload, LuTrash2, LuPencil, LuUndo2, LuClock, LuPackageCheck, LuWarehouse, LuTriangleAlert, LuInbox, LuX, LuFilter, LuNotebookPen, LuCalendarRange, LuCalendarX, LuPackageX, LuBan, LuCalendarClock, LuAlarmClockOff } from 'react-icons/lu';
+import { LuPlus, LuHandshake, LuSearch, LuDownload, LuTrash2, LuPencil, LuUndo2, LuClock, LuPackageCheck, LuWarehouse, LuTriangleAlert, LuInbox, LuX, LuFilter, LuNotebookPen, LuCalendarRange, LuCalendarX, LuPackageX, LuBan, LuCalendarClock, LuAlarmClockOff, LuUserX } from 'react-icons/lu';
 import { getSalesList, subscribeReturns, subscribeDrafts, updateReturn, deleteReturn, markReturnsTaken, undoReturnTaken, commitDrafts } from '../services/dbService';
 import { useAuth } from '../context/AuthContext';
 import { useFeedback } from '../context/FeedbackContext';
@@ -7,9 +7,10 @@ import { PageHeader, StatCard, EmptyState, Skeleton, Stepper } from '../componen
 import RecordReturnModal from '../components/returns/RecordReturnModal';
 import PickupModal from '../components/returns/PickupModal';
 import ScheduleModal from '../components/returns/ScheduleModal';
+import AssigneePicker from '../components/returns/AssigneePicker';
 import SelectField from '../components/SelectField';
-import { stringOptions } from '../utils/options';
-import { isLate, lateDays, isScheduled, isStaleDraft, CONDITIONS, PERIODS, periodRange, conditionOf, daysSince, isAged, formatDate, formatDateTime, timeAgo, whoLabel, WAREHOUSE_ALERT_DAYS } from '../utils/returns';
+import { stringOptions, salesOptions } from '../utils/options';
+import { ownerIds, ownerSales, autoAssignIds, isLate, lateDays, isScheduled, isStaleDraft, CONDITIONS, PERIODS, periodRange, conditionOf, daysSince, isAged, formatDate, formatDateTime, timeAgo, whoLabel, WAREHOUSE_ALERT_DAYS } from '../utils/returns';
 
 const COND_ICON = { kedaluwarsa: <LuCalendarX />, rusak: <LuPackageX />, tidak_layak: <LuBan /> };
 
@@ -27,6 +28,7 @@ const Returns = () => {
   const [returns, setReturns] = useState([]);
   const [drafts, setDrafts] = useState([]);
   const [sales, setSales] = useState([]);
+  const [salesReady, setSalesReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [connError, setConnError] = useState(false);
 
@@ -54,8 +56,12 @@ const Returns = () => {
   // Data realtime: perubahan oleh karyawan lain langsung tampil tanpa muat ulang.
   useEffect(() => {
     getSalesList()
-      .then(s => setSales(s.map(x => ({ ...x, items: Array.isArray(x.items) ? x.items : [] }))))
-      .catch(console.error);
+      .then(s => setSales(s.map(x => ({
+        ...x,
+        items: Array.isArray(x.items) ? x.items : (typeof x.items === 'string' ? x.items.split(',').map(i => i.trim()).filter(Boolean) : []),
+      }))))
+      .catch(console.error)
+      .finally(() => setSalesReady(true));
     const onErr = (e) => { console.error(e); setConnError(true); setLoading(false); };
     const unsubR = subscribeReturns((r) => { setReturns(r); setConnError(false); setLoading(false); }, onErr);
     const unsubD = subscribeDrafts(setDrafts, onErr);
@@ -72,6 +78,7 @@ const Returns = () => {
   const lateCount = waiting.filter(isLate).length;
   const scheduledCount = waiting.filter(isScheduled).length;
   const unscheduledCount = waiting.length - lateCount - scheduledCount;
+  const unassignedCount = waiting.filter(r => ownerIds(r, sales).length === 0).length;
 
   const thisMonthTaken = taken.filter(r => {
     const d = new Date(r.takenAt);
@@ -92,7 +99,6 @@ const Returns = () => {
     return Object.entries(count).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n]) => n);
   }, [returns, drafts]);
 
-  const salesNames = useMemo(() => [...new Set(taken.map(r => r.salesName).filter(Boolean))].sort(), [taken]);
   const distributorNames = useMemo(() => [...new Set(taken.map(r => r.distributor).filter(Boolean))].sort(), [taken]);
   const recorderNames = useMemo(() => [...new Set(returns.map(r => whoLabel(r)).filter(Boolean))].sort(), [returns]);
 
@@ -121,16 +127,23 @@ const Returns = () => {
       if (isNaN(t) || t < range[0] || t >= range[1]) return false;
     }
     if (filterCondition !== 'all' && r.condition !== filterCondition) return false;
-    if (tab !== 'menunggu') {
-      if (filterSales !== 'all' && r.salesName !== filterSales) return false;
-      if (filterDistributor !== 'all' && r.distributor !== filterDistributor) return false;
+    if (filterSales !== 'all') {
+      // Barang yang sudah diambil dilihat dari sales pengambil; yang masih menunggu dari sales penerimanya.
+      const owners = ownerIds(r, sales);
+      if (filterSales === 'none') {
+        if (!(r.status === 'menunggu' && owners.length === 0)) return false;
+      } else if (r.status === 'diambil' ? r.salesId !== filterSales : !owners.includes(filterSales)) {
+        return false;
+      }
     }
+    if (tab !== 'menunggu' && filterDistributor !== 'all' && r.distributor !== filterDistributor) return false;
     if (filterBy !== 'all' && whoLabel(r) !== filterBy) return false;
     if (tab === 'menunggu' && filterAge !== 'all' && daysSince(r.createdAt) < Number(filterAge)) return false;
     if (tab === 'menunggu') {
       if (waitingFilter === 'terlambat' && !isLate(r)) return false;
       if (waitingFilter === 'dijadwalkan' && !isScheduled(r)) return false;
       if (waitingFilter === 'tanpa_jadwal' && r.pickupDate) return false;
+      if (waitingFilter === 'tanpa_sales' && ownerIds(r, sales).length > 0) return false;
     }
     const q = search.trim().toLowerCase();
     if (q) return [r.itemName, r.notes, r.salesName, r.distributor, r.createdByName].some(v => String(v || '').toLowerCase().includes(q));
@@ -148,7 +161,7 @@ const Returns = () => {
   const listQty = list.reduce((n, r) => n + (Number(r.quantity) || 0), 0);
   const activeFilterCount = [
     filterCondition !== 'all',
-    tab !== 'menunggu' && filterSales !== 'all',
+    filterSales !== 'all',
     tab !== 'menunggu' && filterDistributor !== 'all',
     filterBy !== 'all',
     tab === 'menunggu' && filterAge !== 'all',
@@ -294,6 +307,7 @@ const Returns = () => {
         quantity: parseInt(editing.quantity) || 1,
         expiredDate: editing.expiredDate || '',
         pickupDate: editing.pickupDate || '',
+        salesIds: Array.isArray(editing.salesIds) ? editing.salesIds : [],
         condition: editing.condition,
         notes: editing.notes || '',
       });
@@ -317,7 +331,7 @@ const Returns = () => {
     const filters = [];
     if (search.trim()) filters.push(['Kata kunci', search.trim()]);
     if (filterCondition !== 'all') filters.push(['Kondisi', conditionOf(filterCondition).label]);
-    if (tab !== 'menunggu' && filterSales !== 'all') filters.push(['Sales', filterSales]);
+    if (filterSales !== 'all') filters.push([tab === 'diambil' ? 'Sales pengambil' : 'Untuk sales', filterSales === 'none' ? 'Belum ada sales' : (sales.find(s => s.id === filterSales)?.name || '-')]);
     if (tab !== 'menunggu' && filterDistributor !== 'all') filters.push(['Distributor', filterDistributor]);
     if (filterBy !== 'all') filters.push(['Dicatat oleh', filterBy]);
     if (tab === 'menunggu' && filterAge !== 'all') filters.push(['Lama di gudang', `≥ ${filterAge} hari`]);
@@ -330,7 +344,7 @@ const Returns = () => {
     try {
       const { exportReturnsXlsx } = await import('../utils/exportReturns');
       await exportReturnsXlsx({
-        rows: list,
+        rows: list.map(r => ({ ...r, ownerNames: ownerSales(r, sales).map(s => s.name) })),
         meta: {
           tabLabel: TABS.find(t => t.id === tab)?.label || tab,
           periodLabel: tab === 'diambil' ? `${periodLabel} (tanggal diambil)` : tab === 'semua' ? `${periodLabel} (tanggal dicatat)` : periodLabel,
@@ -389,12 +403,26 @@ const Returns = () => {
     );
   };
 
+  // Siapa yang akan menerima barang ini (otomatis dari barang yang dibawa sales).
+  const OwnerLine = ({ r }) => {
+    if (r.status === 'diambil') return null;
+    const o = ownerSales(r, sales);
+    if (o.length === 0) {
+      return <div style={{ marginTop: 4 }}><span className="badge badge-warning"><LuUserX /> Belum ada sales</span></div>;
+    }
+    return (
+      <div className="text-xs text-secondary" style={{ marginTop: 4 }}>
+        Untuk: <b>{o.slice(0, 2).map(s => s.name).join(', ')}</b>{o.length > 2 ? ` +${o.length - 2}` : ''}
+      </div>
+    );
+  };
+
   const rowActions = (r) => (
     <div className="flex justify-end gap-1">
       {r.status === 'menunggu' ? (
         <>
           <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setScheduling([r])} title="Jadwalkan pengambilan" aria-label="Jadwalkan pengambilan"><LuCalendarClock /></button>
-          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setEditing({ ...r })} title="Edit" aria-label="Edit"><LuPencil /></button>
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setEditing({ ...r, salesIds: Array.isArray(r.salesIds) ? r.salesIds : autoAssignIds(r.itemName, sales) })} title="Edit" aria-label="Edit"><LuPencil /></button>
           <button className="btn btn-ghost btn-sm btn-icon" style={{ color: 'var(--danger)' }} onClick={() => handleDelete(r)} title="Hapus" aria-label="Hapus"><LuTrash2 /></button>
         </>
       ) : (
@@ -426,7 +454,7 @@ const Returns = () => {
         </div>
       )}
 
-      {loading ? (
+      {loading || !salesReady ? (
         <div className="stat-grid"><Skeleton height={100} /><Skeleton height={100} /><Skeleton height={100} /></div>
       ) : (
         <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -476,17 +504,21 @@ const Returns = () => {
                     <label className="form-label">Kondisi</label>
                     <SelectField value={filterCondition} onChange={setFilterCondition} title="Kondisi" options={[{ value: 'all', label: 'Semua kondisi' }, ...CONDITIONS.map(c => ({ value: c.id, label: c.label }))]} />
                   </div>
+                  <div>
+                    <label className="form-label">{tab === 'diambil' ? 'Sales pengambil' : tab === 'menunggu' ? 'Untuk sales' : 'Sales (penerima / pengambil)'}</label>
+                    <SelectField
+                      value={filterSales}
+                      onChange={setFilterSales}
+                      title="Pilih sales"
+                      searchable
+                      options={salesOptions(sales, { value: 'all', label: 'Semua sales' }).concat(tab !== 'diambil' ? [{ value: 'none', label: 'Belum ada sales', hint: 'Barang tanpa penerima' }] : [])}
+                    />
+                  </div>
                   {tab !== 'menunggu' && (
-                    <>
-                      <div>
-                        <label className="form-label">Sales pengambil</label>
-                        <SelectField value={filterSales} onChange={setFilterSales} title="Sales pengambil" options={stringOptions(salesNames, 'Semua sales')} />
-                      </div>
-                      <div>
-                        <label className="form-label">Distributor</label>
-                        <SelectField value={filterDistributor} onChange={setFilterDistributor} title="Distributor" options={stringOptions(distributorNames, 'Semua distributor')} />
-                      </div>
-                    </>
+                    <div>
+                      <label className="form-label">Distributor</label>
+                      <SelectField value={filterDistributor} onChange={setFilterDistributor} title="Distributor" options={stringOptions(distributorNames, 'Semua distributor')} />
+                    </div>
                   )}
                   <div>
                     <label className="form-label">Dicatat oleh</label>
@@ -538,6 +570,7 @@ const Returns = () => {
                     { id: 'terlambat', label: `Terlambat (${lateCount})`, danger: lateCount > 0 },
                     { id: 'dijadwalkan', label: `Dijadwalkan (${scheduledCount})` },
                     { id: 'tanpa_jadwal', label: `Tanpa jadwal (${unscheduledCount})` },
+                    ...(unassignedCount > 0 ? [{ id: 'tanpa_sales', label: `Belum ada sales (${unassignedCount})`, danger: true }] : []),
                   ].map(c => (
                     <button key={c.id} className={waitingFilter === c.id ? 'active' : ''} style={c.danger && waitingFilter !== c.id ? { color: 'var(--danger)' } : undefined} onClick={() => setWaitingFilter(c.id)}>{c.label}</button>
                   ))}
@@ -612,6 +645,7 @@ const Returns = () => {
                             <div className="font-semibold"><span className="text-accent-primary">{r.quantity}×</span> {r.itemName}</div>
                             {r.expiredDate && <div className="text-xs text-muted">ED: {formatDate(r.expiredDate)}</div>}
                             {r.notes && <div className="text-xs text-muted">“{r.notes}”</div>}
+                            <OwnerLine r={r} />
                           </td>
                           <td><span className={`badge badge-${conditionOf(r.condition).tone}`}>{conditionOf(r.condition).label}</span></td>
                           <td>
@@ -638,6 +672,7 @@ const Returns = () => {
                             {r.expiredDate && <span className="badge">ED {formatDate(r.expiredDate)}</span>}
                           </div>
                           {r.notes && <div className="text-xs text-muted" style={{ marginTop: 4 }}>“{r.notes}”</div>}
+                          <OwnerLine r={r} />
                         </div>
                       </div>
                       <div className="flex items-end justify-between gap-2" style={{ borderTop: '1px solid var(--border-light)', paddingTop: 8 }}>
@@ -660,6 +695,7 @@ const Returns = () => {
 
       {showRecord && (
         <RecordReturnModal
+          sales={sales}
           catalog={catalog}
           frequent={frequent}
           drafts={drafts}
@@ -702,6 +738,15 @@ const Returns = () => {
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Masuk ke data sales</label>
+                <AssigneePicker
+                  sales={sales}
+                  value={editing.salesIds || []}
+                  onChange={(ids) => setEditing({ ...editing, salesIds: ids })}
+                  autoIds={autoAssignIds(editing.itemName, sales)}
+                />
               </div>
               <div className="flex gap-3 flex-wrap">
                 <div className="form-group flex-1" style={{ minWidth: 150 }}>

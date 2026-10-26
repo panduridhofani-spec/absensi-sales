@@ -1,20 +1,24 @@
 import { useState } from 'react';
-import { LuX, LuCalendarClock } from 'react-icons/lu';
+import { LuX, LuCalendarClock, LuUser } from 'react-icons/lu';
 import { todayStr, formatDate } from '../../utils/returns';
 import SelectField from '../SelectField';
 import { salesOptions } from '../../utils/options';
 
 // Atur (atau hapus) tanggal janji pengambilan untuk beberapa barang sekaligus.
-const ScheduleModal = ({ items, sales, onClose, onSave }) => {
+const ScheduleModal = ({ items, sales, fixedSales, onClose, onSave }) => {
   const existing = items.find(i => i.pickupDate);
   const [date, setDate] = useState(existing?.pickupDate && existing.pickupDate >= todayStr() ? existing.pickupDate : '');
-  const [salesId, setSalesId] = useState(items.every(i => i.pickupSalesId && i.pickupSalesId === items[0].pickupSalesId) ? (items[0].pickupSalesId || '') : '');
+  const [salesId, setSalesId] = useState(
+    fixedSales
+      ? fixedSales.id
+      : items.every(i => i.pickupSalesId && i.pickupSalesId === items[0].pickupSalesId) ? (items[0].pickupSalesId || '') : ''
+  );
   const [saving, setSaving] = useState(false);
 
   const save = async (clear) => {
     setSaving(true);
     try {
-      const s = sales.find(x => x.id === salesId);
+      const s = fixedSales || sales.find(x => x.id === salesId);
       await onSave(
         clear
           ? { pickupDate: '', pickupSalesId: null, pickupSalesName: null }
@@ -44,17 +48,24 @@ const ScheduleModal = ({ items, sales, onClose, onSave }) => {
           {date && <div className="text-xs text-muted" style={{ marginTop: 6 }}>{formatDate(date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>}
         </div>
 
-        <div className="form-group">
-          <label className="form-label">Sales yang berjanji (opsional)</label>
-          <SelectField
-            value={salesId}
-            onChange={setSalesId}
-            options={salesOptions(sales, { value: '', label: '— Belum tahu / siapa saja —' })}
-            placeholder="— Belum tahu / siapa saja —"
-            title="Sales yang berjanji"
-            searchable
-          />
-        </div>
+        {fixedSales ? (
+          <div className="callout callout-info" style={{ marginBottom: '1rem' }}>
+            <LuUser />
+            <div className="callout-body">Janji diambil oleh <b>{fixedSales.name}</b>{fixedSales.distributor ? ` · ${fixedSales.distributor}` : ''}</div>
+          </div>
+        ) : (
+          <div className="form-group">
+            <label className="form-label">Sales yang berjanji (opsional)</label>
+            <SelectField
+              value={salesId}
+              onChange={setSalesId}
+              options={salesOptions(sales, { value: '', label: '— Belum tahu / siapa saja —' })}
+              placeholder="— Belum tahu / siapa saja —"
+              title="Sales yang berjanji"
+              searchable
+            />
+          </div>
+        )}
 
         <div className="list" style={{ maxHeight: 130, overflowY: 'auto', marginBottom: '1rem' }}>
           {items.map(i => (

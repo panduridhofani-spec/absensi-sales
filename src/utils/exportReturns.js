@@ -33,6 +33,7 @@ export const exportReturnsXlsx = async ({ rows, meta }) => {
     [text('Seluruh data pada laporan ini', { fontWeight: 'bold' }), num(rows.length), num(totalQty), text('')],
     [text('Menunggu diambil'), num(waiting.length), num(qtyOf(waiting)), text('')],
     [text('   di antaranya terlambat (janji terlewat)', { textColor: '#991b1b' }), num(waiting.filter(isLate).length), num(qtyOf(waiting.filter(isLate))), text('')],
+    [text('   di antaranya belum ada sales penerima', { textColor: '#92400e' }), num(waiting.filter(r => !r.ownerNames?.length).length), num(qtyOf(waiting.filter(r => !r.ownerNames?.length))), text('')],
     [text('Sudah diambil sales'), num(taken.length), num(qtyOf(taken)), text('')],
     [null],
     [{ value: 'Per kondisi barang', fontWeight: 'bold', backgroundColor: '#eef2ff', columnSpan: 4 }, null, null, null],
@@ -45,7 +46,7 @@ export const exportReturnsXlsx = async ({ rows, meta }) => {
 
   // --- Sheet 2: Rincian ---
   const detailHead = head([
-    'No', 'Nama Barang', 'Jumlah', 'Kondisi', 'Tgl Kedaluwarsa', 'Status',
+    'No', 'Nama Barang', 'Jumlah', 'Kondisi', 'Untuk Sales (Penerima)', 'Tgl Kedaluwarsa', 'Status',
     'Tanggal Dicatat', 'Jam Dicatat', 'Dicatat Oleh', 'Lama di Gudang (hari)',
     'Tgl Janji Ambil', 'Janji Sales', 'Terlambat (hari)',
     'Sales Pengambil', 'Distributor', 'Tanggal Diambil', 'Jam Diambil', 'Diserahkan Oleh',
@@ -65,6 +66,9 @@ export const exportReturnsXlsx = async ({ rows, meta }) => {
       text(r.itemName, { wrap: true, fontWeight: 'bold' }),
       num(r.quantity),
       text(conditionOf(r.condition).label, { align: 'center' }),
+      r.ownerNames?.length
+        ? text(r.ownerNames.join(', '), { wrap: true })
+        : text('Belum ada sales', { textColor: '#92400e', backgroundColor: '#fef3c7' }),
       edCell(r.expiredDate),
       text(statusLabel, { ...BODY, ...STATUS_STYLE[statusKey] }),
       dateCell(r.createdAt),
@@ -87,10 +91,10 @@ export const exportReturnsXlsx = async ({ rows, meta }) => {
   const totalRow = [
     { value: 'TOTAL', columnSpan: 2, align: 'center', ...TOTAL }, null,
     { value: totalQty, type: Number, format: '#,##0', align: 'center', ...TOTAL },
-    ...Array.from({ length: 18 }, () => ({ value: '', type: String, ...TOTAL })),
+    ...Array.from({ length: 19 }, () => ({ value: '', type: String, ...TOTAL })),
   ];
   const detail = [detailHead, ...detailRows, totalRow];
-  const detailCols = [6, 34, 9, 16, 15, 16, 14, 11, 18, 13, 15, 20, 12, 22, 20, 14, 11, 16, 28, 28, 18].map(width => ({ width }));
+  const detailCols = [6, 34, 9, 16, 26, 15, 16, 14, 11, 18, 13, 15, 20, 12, 22, 20, 14, 11, 16, 28, 28, 18].map(width => ({ width }));
 
   // --- Sheet 3: Rekap per sales ---
   const bySales = {};

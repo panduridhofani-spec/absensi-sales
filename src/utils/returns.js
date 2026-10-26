@@ -87,6 +87,32 @@ export const timeAgo =(iso) => {
   return `${Math.floor(hr / 24)} hari lalu`;
 };
 
+const itemsArray = (items) => {
+  if (Array.isArray(items)) return items;
+  if (typeof items === 'string') return items.split(',').map(i => i.trim()).filter(Boolean);
+  return [];
+};
+
+// Sales yang membawa barang ini (berdasarkan daftar "barang yang dibawa" di data sales).
+export const autoAssignIds = (itemName, sales) =>
+  sales.filter(s => matchesSalesItems(itemName, itemsArray(s.items))).map(s => s.id);
+
+// Sales yang berhak mengambil barang retur ini.
+// - Barang baru menyimpan daftar sales (salesIds), bisa kosong = belum ada sales.
+// - Barang lama (tanpa salesIds) dicocokkan otomatis dari daftar barang sales.
+// - Sales yang tercatat berjanji mengambil selalu ikut dihitung.
+export const ownerIds = (r, sales) => {
+  const base = Array.isArray(r.salesIds) ? r.salesIds : autoAssignIds(r.itemName, sales);
+  const ids = new Set(base);
+  if (r.pickupSalesId) ids.add(r.pickupSalesId);
+  return [...ids];
+};
+
+export const ownerSales = (r, sales) => {
+  const ids = ownerIds(r, sales);
+  return ids.map(id => sales.find(s => s.id === id)).filter(Boolean);
+};
+
 // Barang dianggap sama jika nama, kondisi, dan tanggal kedaluwarsa sama.
 export const sameReturnItem = (a, b) =>
   norm(a.itemName) === norm(b.itemName) &&

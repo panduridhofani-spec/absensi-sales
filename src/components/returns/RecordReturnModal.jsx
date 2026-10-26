@@ -4,11 +4,12 @@ import { useAuth } from '../../context/AuthContext';
 import { useFeedback } from '../../context/FeedbackContext';
 import { Stepper } from '../ui';
 import { addDraft, updateDraft, deleteDraft, restoreDraft, commitDrafts } from '../../services/dbService';
-import { CONDITIONS, conditionOf, sameReturnItem, timeAgo, whoLabel, formatDate, isStaleDraft, todayStr } from '../../utils/returns';
+import AssigneePicker from './AssigneePicker';
+import { CONDITIONS, conditionOf, sameReturnItem, timeAgo, whoLabel, formatDate, isStaleDraft, todayStr, autoAssignIds, ownerSales } from '../../utils/returns';
 
 const COND_ICON = { kedaluwarsa: <LuCalendarX />, rusak: <LuPackageX />, tidak_layak: <LuBan /> };
 
-const RecordReturnModal = ({ catalog, frequent, drafts, waiting, onClose, onCommitted }) => {
+const RecordReturnModal = ({ catalog, frequent, drafts, waiting, sales, onClose, onCommitted }) => {
   const { profile, user } = useAuth();
   const { confirm, toast } = useFeedback();
   const by = { name: profile?.name || null, email: user?.email || null };
@@ -21,6 +22,7 @@ const RecordReturnModal = ({ catalog, frequent, drafts, waiting, onClose, onComm
   const [expiredDate, setExpiredDate] = useState('');
   const [notes, setNotes] = useState('');
   const [pickupDate, setPickupDate] = useState('');
+  const [assignIds, setAssignIds] = useState([]);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef(null);
 
@@ -35,9 +37,13 @@ const RecordReturnModal = ({ catalog, frequent, drafts, waiting, onClose, onComm
   const waitDup = picked ? waiting.filter(w => sameReturnItem(w, candidate)) : [];
   const waitDupQty = waitDup.reduce((n, w) => n + (Number(w.quantity) || 0), 0);
 
+  // Begitu barang dipilih, sales yang membawa barang itu otomatis terpilih sebagai penerima.
+  const autoIds = useMemo(() => (picked ? autoAssignIds(name.trim(), sales) : []), [picked, name, sales]);
+
   const pick = (value) => {
     setName(value);
     setPicked(true);
+    setAssignIds(autoAssignIds(value.trim(), sales));
   };
 
   const resetForm = () => {
@@ -47,6 +53,7 @@ const RecordReturnModal = ({ catalog, frequent, drafts, waiting, onClose, onComm
     setExpiredDate('');
     setNotes('');
     setPickupDate('');
+    setAssignIds([]);
     setShowMore(false);
     setTimeout(() => inputRef.current?.focus(), 50);
   };
@@ -59,7 +66,7 @@ const RecordReturnModal = ({ catalog, frequent, drafts, waiting, onClose, onComm
         await updateDraft(draftDup.id, { quantity: (Number(draftDup.quantity) || 0) + amount }, by);
         toast.success(`Jumlah ${draftDup.itemName} ditambah menjadi ${(Number(draftDup.quantity) || 0) + amount}`);
       } else {
-        await addDraft({ itemName: name.trim(), quantity: amount, expiredDate, condition, notes, pickupDate }, by);
+        await addDraft({ itemName: name.trim(), quantity: amount, expiredDate, condition, notes, pickupDate, salesIds: assignIds }, by);
         toast.success(`${amount}× ${name.trim()} masuk draf`);
       }
       resetForm();
@@ -118,10 +125,13 @@ const RecordReturnModal = ({ catalog, frequent, drafts, waiting, onClose, onComm
     const ok = await confirm({
       tone: 'primary',
       title: `Simpan ${drafts.length} barang ke gudang?`,
-      message: `Total ${totalQty} pcs akan tercatat sebagai Menunggu diambil dan bisa diserahkan ke sales.`,
+      message: `Total ${totalQty} pcs akan masuk gudang dan otomatis muncul di data sales penerimanya sebagai Menunggu diambil.`,
       details: (
         <ul style={{ listStyle: 'none', display: 'grid', gap: 4 }}>
-          {drafts.map(d => <li key={d.id}><b>{d.quantity}×</b> {d.itemName} <span className="text-muted">· {conditionOf(d.condition).label}</span></li>)}
+          {drafts.map(d => {
+            const o = ownerSales(d, sales);
+            return <li key={d.id}><b>{d.quantity}×</b> {d.itemName} <span className="text-muted">· {conditionOf(d.condition).label} · {o.length ? `untuk ${o.map(s => s.name).join(', ')}` : 'belum ada sales'}</span></li>;
+          })}
         </ul>
       ),
       confirmText: 'Ya, simpan',
@@ -235,6 +245,13 @@ const RecordReturnModal = ({ catalog, frequent, drafts, waiting, onClose, onComm
           </div>
         </div>
 
+        {picked && (
+          <div className="animate-fade-in" style={{ marginBottom: '1rem' }}>
+            <div className="step-title"><span className="step-num">4</span> Masuk ke data sales mana?</div>
+            <AssigneePicker sales={sales} value={assignIds} onChange={setAssignIds} autoIds={autoIds} />
+          </div>
+        )}
+
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowMore(s => !s)} style={{ marginBottom: showMore ? '0.75rem' : '1rem' }}>
           <LuChevronDown style={{ transform: showMore ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} /> Kedaluwarsa, janji ambil &amp; catatan (opsional)
         </button>
@@ -306,6 +323,7 @@ const RecordReturnModal = ({ catalog, frequent, drafts, waiting, onClose, onComm
                     <div className="list-item-title" style={{ whiteSpace: 'normal' }}>{d.itemName}</div>
                     <div className="list-item-sub" style={{ whiteSpace: 'normal' }}>
                       <span className={`badge badge-${conditionOf(d.condition).tone}`} style={{ marginRight: 6 }}>{conditionOf(d.condition).label}</span>
+                      {(() => { const o = ownerSales(d, sales); return o.length ? `untuk ${o.slice(0, 2).map(s => s.name).join(', ')}${o.length > 2 ? ` +${o.length - 2}` : ''} · ` : 'belum ada sales · '; })()}
                       {d.expiredDate ? `ED ${formatDate(d.expiredDate)} · ` : ''}{d.pickupDate ? `janji ambil ${formatDate(d.pickupDate)} · ` : ''}{whoLabel(d)}, {timeAgo(d.createdAt)}
                     </div>
                   </div>
